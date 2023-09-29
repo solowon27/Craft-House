@@ -1,0 +1,29 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Roboto', sans-serif;
+    background-color: #0D1321;
+}
+
+.carousel-container {
+    height: 400px; 
+  }
+  /* CSS */
+.carousel-container {
+    max-width: 600px; /* Set the desired fixed size for the slider */
+    margin: 0 auto;
+  }
+  
+  .slider {
+    max-width: 100%; /* Ensure the slider takes full width of its container */
+  }
+  
+  .slider-image {
+    width: 100%; /* Make images cover the slider */
+    height: 100%; /* Make images cover the slider */
+    object-fit: cover; /* Ensure the images cover the slider without distortion */
+  }
