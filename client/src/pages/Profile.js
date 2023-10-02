@@ -1,65 +1,78 @@
 import React from 'react';
-import { useQuery } from '@apollo/client';
-import { GET_ME } from '../utils/queries';
+import { useQuery, useMutation } from '@apollo/client';
+import { Link } from 'react-router-dom'; //we use Link to navigate other pages
 
-import profile from '../images/profile.png';
-import explore from '../images/explore.png';
-import SavedDIY from './savedDIY';
+// Import queries and mutations
+import { GET_SAVED_DIYS } from '../utils/queries';
+import { REMOVE_SAVED_DIY } from '../utils/mutations';
 
-function Profile() {
-  const { loading, error, data } = useQuery(GET_ME);
+function SavedDIY({ userId }) {
+  const { loading, error, data } = useQuery(GET_SAVED_DIYS, {
+    variables: { userId },
+  });
+  const [removeSavedDIYMutation] = useMutation(REMOVE_SAVED_DIY); // Mutation to remove a saved DIY
 
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error! {error.message}</div>;
+  if (loading) return <div className="text-center py-8">Loading...</div>;
+  if (error) return <div className="text-center py-8">Error! {error.message}</div>;
 
-  const user = data.me;
+  const savedDIYs = data.getSavedDIYs;
+
+  // Function to handle removing a saved DIY
+  const handleRemoveSavedDIY = async (diyId) => {
+    try {
+      await removeSavedDIYMutation({ 
+        variables: { DIYId: diyId }, // Pass the DIY's id to the mutation
+        refetchQueries: [{ query: GET_SAVED_DIYS, variables: { userId } }], // Refetch the user data after deletion this makes the page update automatically
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   return (
-    <div className="explore-container bg-cover bg-center" style={{ backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.5)), url(${explore})`, }}>
-    <div className="flex flex-col items-center p-4">
-      {/* Profile Picture */}
-      <div className="rounded-full w-20 h-20 overflow-hidden bg-gray-300">
-        
-        <img src= { profile } alt="Profile" className="object-cover w-full h-full" />
+    <div className="container mx-auto px-4 py-8">
+      <div className="border-b border-t m-5 p-2 border-gray-500">
+        <h3 className="text-3xl font-semibold text-yellow-500 text-center">My Saved DIYs</h3>
       </div>
-      <h2 className="text-2xl font-semibold mt-4">My Profile</h2>
-      <p className="text-gray-700">Username: {user.username}</p>
-      <p className="text-gray-700">Email: {user.email}</p>
-
-      
-      <div className="mt-8">
-        <h3 className="text-xl font-semibold">My DIYs</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
-          
-          {user.DIYs.map((diy) => (
+      {savedDIYs.length === 0 ? ( // Check if there are no saved DIYs
+        <p className="text-center text-gray-500 mt-4">No saved DIYs yet.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-6 mt-4 ml-4 mr-4">
+          {savedDIYs.map((diy) => (
             <div
               key={diy._id}
-              className="border rounded-lg shadow-md overflow-hidden"
+              className="border rounded-lg shadow-md overflow-hidden" style={{ width: '100%', height: '100%' }}
             >
               {/* DIY content */}
               <div className="p-4">
-                <h4 className=" underline text-lg font-semibold">{diy.title}</h4>
-                <p className="text-gray-700">{diy.description}</p>
+                <h4 className="text-gray-500 text-lg font-semibold text-center">{diy.title}</h4>
               </div>
-              {/* Additional DIY details */}
-              <div className="p-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500">Materials Used: {diy.materialsUsed}</p>
-                <p className="text-sm text-gray-500">Instructions: {diy.instructions}</p>
-                <p className="text-sm text-gray-500">Images: {diy.images}</p>
+              {/* DIY image */}
+              <div className="flex justify-center border-t">
+                <img
+                  src={diy.images[0]}
+                  alt="DIY"
+                  className="object-cover w-full h-40"
+                />
+              </div>
+              {/* View DIY */}
+              <Link to={`/diy/${diy._id}`} className="block p-4 hover:bg-gray-900">
+                <h3 className="text-lg text-yellow-500 hover:text-yellow-600 font-semibold mb-2 text-center underline">View</h3>
+              </Link>
+              <div className="flex justify-between p-4 border-t border-gray-300">
+                <button
+                  className="text-red-500 hover:text-red-600"
+                  onClick={() => handleRemoveSavedDIY(diy._id)}
+                >
+                  Remove from saved
+                </button>
               </div>
             </div>
           ))}
         </div>
-      </div>
-      <div className="favorites-container mt-8">
-  <h3 className="text-xl font-semibold">My Favorites</h3>
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
-    <SavedDIY />
-  </div>
-</div>
-    </div>
+      )}
     </div>
   );
 }
 
-export default Profile;
+export default SavedDIY;

@@ -6,13 +6,13 @@ import { SEARCH_DIYS } from '../utils/queries'; // Import your GraphQL query
 import { Link } from 'react-router-dom';
 
 const SearchBar = () => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const { loading, data } = useQuery(SEARCH_DIYS, {
+  const [searchTerm, setSearchTerm] = useState(''); // Create state for holding search term
+  const { loading, data } = useQuery(SEARCH_DIYS, { // Use useQuery hook to make query request
     variables: { searchTerm },
     skip: !searchTerm,
   });
 
-  const handleChange = (event) => {
+  const handleChange = (event) => { 
     setSearchTerm(event.target.value);
   };
 
@@ -40,7 +40,7 @@ const SearchBar = () => {
           />
           <button
             onClick={handleSearch}
-            className="absolute right-1 top-1/2 -translate-y-1/2 p-4 bg-pink-500 hover:bg-pink-600 rounded-full"
+            className="absolute right-1 top-1/2 -translate-y-1/2 p-4 bg-yellow-500 hover:bg-yellow-600 rounded-full"
           >
             <AiOutlineSearch />
           </button>
@@ -57,11 +57,11 @@ const SearchBar = () => {
                   <Link
                     key={DIY._id}
                     to={`/diy/${DIY._id}`}
-                    className="block p-4 hover:bg-gray-100 border-b border-gray-200"
+                    className="block p-4 hover:bg-gray-900 border-b border-gray-200"
                     onClick={clearSearch} // Clear search term when a result is clicked
                   >
-                    <h3 className="text-pink-500 text-lg">{DIY.title}</h3>
-                    <p className="text-gray-600">{DIY.description}</p>
+                    <h3 className="text-yellow-500 text-lg">{DIY.title}</h3>
+                    <p className="text-white">{DIY.description}</p>
                   </Link>
                 ))
               ) : (

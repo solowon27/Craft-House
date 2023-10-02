@@ -1,6 +1,9 @@
 const { AuthenticationError } = require('apollo-server-express');
 const { User, DIY, Comment, Like } = require('../models');
 const { signToken } = require('../utils/auth');
+const { PubSub } = require('graphql-subscriptions');
+
+const pubsub = new PubSub();
 
 const resolvers = {
     Query: {
@@ -13,7 +16,10 @@ const resolvers = {
                   .populate({
                       path: 'comments',
                       populate: { path: 'DIY' },
-                  });
+                  })
+                  .populate('likes') // Populate the likes field in users
+                  .populate('savedDIYs') // Populate the savedDIYs field in users
+                  .exec();
       
               return userData;
           }
@@ -28,9 +34,11 @@ const resolvers = {
                 .populate('DIYs')
                 .populate({
                   path: 'comments',
-                  populate: { path: 'DIY' }, // Populate the DIY field in comments
+                  populate: { path: 'DIY' },
                 })
-                .populate('likes'); // Populate the likes field in users
+                .populate('likes') // Populate the likes field in users
+                .populate('savedDIYs') // Populate the savedDIYs field in users
+                .exec();
               return usersData;
             } catch (error) {
               console.error('Error fetching users data:', error);
@@ -91,10 +99,52 @@ const resolvers = {
       
             const allDIYs = await DIY.find().populate('user');
             return allDIYs;
-          }
-        
-        },
+          },
 
+          getSavedDIYs: async (parent, args, context) => {
+            if (context.user) {
+                const user = await User.findById(context.user._id).populate('savedDIYs');
+                return user.savedDIYs;
+            }
+            throw new AuthenticationError('Error!');
+        },
+        
+          //get all comments by DIY id
+          getComments: async (parent, { DIYId }) => {
+            try {
+              const comments = await Comment.find({ DIY: DIYId })
+                .sort({ createdAt: -1 })
+                .populate('user') // Populate the user field for each comment
+                .exec();
+              return comments;
+            } catch (error) {
+              console.error('Error fetching comments:', error);
+              throw new Error('Unable to fetch comments');
+            }
+          },
+
+          //get all likes by DIY id
+          getLikes: async (parent, { DIYId }) => {
+            try {
+                const likes = await Like.find({ DIY: DIYId }).sort({ createdAt: -1 }).populate('user');
+                return likes;
+            } catch (error) {
+                console.error('Error fetching likes:', error);
+                throw new Error('Unable to fetch likes');
+            }
+        },
+          //get all users who liked a DIY
+          getLikedUsers: async (parent, { DIYId }) => {
+            try {
+                const likes = await Like.find({ DIY: DIYId }).populate('user');
+                return likes.map((like) => like.user);
+            } catch (error) {
+                console.error('Error fetching liked users:', error);
+                throw new Error('Unable to fetch liked users');
+            }
+        },
+          
+    },
     Mutation: {
         addUser: async (parent, { username, email, password }) => {
             const user = await User.create({ username, email, password });
@@ -144,6 +194,8 @@ const resolvers = {
               .populate('user')
               .populate('comments')
               .exec();
+
+              pubsub.publish('NEW_DIY', { newDIY: populatedDIY });
         
             return populatedDIY;
           }
@@ -152,33 +204,36 @@ const resolvers = {
         },        
         
         addComment: async (_, { DIYId, content }, context) => {
-            try { 
+          try {
               if (context.user) {
-                // Create a new comment document
-                const newComment = await Comment.create({
-                  content,
-                  user: context.user._id,
-                  DIY: DIYId,
-                });
+                  // Create a new comment document
+                  const newComment = await Comment.create({
+                      content,
+                      user: context.user._id,
+                      DIY: DIYId,
+                  });
 
-                // Update the DIY's comments array
-                await DIY.findByIdAndUpdate(DIYId, { $push: { comments: newComment._id } });
+                  // Update the DIY's comments array
+                  await DIY.findByIdAndUpdate(DIYId, { $push: { comments: newComment._id } });
 
-                // Update the User's comments array
-                await User.findByIdAndUpdate(context.user._id, { $push: { comments: newComment._id } });
+                  // Update the User's comments array
+                  await User.findByIdAndUpdate(context.user._id, { $push: { comments: newComment._id } });
 
-                // Populate the new comment and return it
-                const populatedComment = await Comment.findById(newComment._id)
-                  .populate('user')
-                  .exec();
+                  // Populate the new comment and return it
+                  const populatedComment = await Comment.findById(newComment._id).populate('user').exec();
 
-                return populatedComment;
+                  //publish the new event
+                  pubsub.publish(`NEW_COMMENT_${DIYId}`, { newComment: populatedComment });
+
+                  return populatedComment;
               }
               throw new AuthenticationError('You need to be logged in to add a comment.');
-            } catch (error) {
-              throw new UserInputError('Failed to add the comment.', { errors: error.errors });
-            }
-          },
+          } catch (error) {
+              console.error('Failed to add the comment:', error);
+              throw new Error('Failed to add the comment.');
+          }
+      },
+      
      
           removeComment: async (_, { commentId }, context) => {
             try {
@@ -219,18 +274,67 @@ const resolvers = {
             throw new AuthenticationError('You need to be logged in!');
         },
         removeDIY: async (parent, { DIYId }, context) => {
-            if (context.user){
-                const updatedUser = await User.findOneAndUpdate(
-                    { _id: context.user._id },
-                    { $pull: { savedDIYs: DIYId } },
-                    { new: true }
-                ).populate('savedDIYs');
-
-                return updatedUser;
+          try {
+            if (context.user) {
+              // Find the DIY to be removed
+              const DIYToRemove = await DIY.findById(DIYId);
+    
+              // Check if the user trying to remove the DIY is the DIY's author
+              if (DIYToRemove.user.toString() === context.user._id.toString()) {
+                // Remove the DIY document
+                await DIY.findByIdAndRemove(DIYId);
+    
+                // Remove the DIY from the user's DIYs array
+                await User.findByIdAndUpdate(context.user._id, {
+                  $pull: { DIYs: DIYId },
+                });
+    
+                return DIYToRemove;
+              } else {
+                throw new AuthenticationError(
+                  'You are not authorized to remove this DIY.'
+                );
+              }
             }
+            throw new AuthenticationError('You need to be logged in to remove a DIY.');
+          } catch (error) {
+            throw new UserInputError('Failed to remove the DIY.', {
+              errors: error.errors,
+            });
+          }
+        },
 
-            throw new AuthenticationError('You need to be logged in!');
-        },    
+        removeSavedDIY: async (parent, { DIYId }, context) => {
+          try {
+            if (context.user) {
+              // Find the DIY to be removed from savedDIYs
+              const DIYToRemove = await DIY.findById(DIYId);
+    
+              if (!DIYToRemove) {
+                throw new Error('DIY not found');
+              }
+    
+              // Check if the user has saved the DIY
+              const user = await User.findById(context.user._id);
+              const hasSavedDIY = user.savedDIYs.includes(DIYId);
+    
+              if (!hasSavedDIY) {
+                throw new Error('DIY is not saved by the user');
+              }
+    
+              // Remove the DIY from the user's savedDIYs array
+              await User.findByIdAndUpdate(context.user._id, {
+                $pull: { savedDIYs: DIYId },
+              });
+    
+              return DIYToRemove;
+            }
+            throw new AuthenticationError('You need to be logged in to remove a saved DIY.');
+          } catch (error) {
+            throw new Error(`Failed to remove the saved DIY: ${error.message}`);
+          }
+        },
+
         addLike: async (parent, args, context) => {
           if (context.user) {
             const { DIYId } = args;
@@ -252,7 +356,9 @@ const resolvers = {
               { _id: context.user._id },
               { $addToSet: { likes: newLike._id } }
             );
-        
+            //publish the new event
+            pubsub.publish(`NEW_LIKE_${DIYId}`, { newLike: newLike });
+
             return await DIY.findById(DIYId).populate('likes');
           }
         
@@ -286,7 +392,45 @@ const resolvers = {
         
           throw new AuthenticationError('You need to be logged in!');
         },
+
+        uploadDIYImage: async (_, { file, DIYId }) => { 
+          try {
+            const { createReadStream, filename } = await file; // Destructure the file object returned from the client
+            const stream = createReadStream();
+            const urlPath = await storeUpload({ stream, filename });
+    
+            // Update the DIY document's images field with the URL path
+            const updatedDIY = await DIY.findByIdAndUpdate(
+              DIYId,
+              { $push: { images: urlPath } },
+              { new: true }
+            );
+    
+            return { filename, urlPath, updatedDIY };
+          } catch (error) {
+            console.error(error);
+            throw new Error('Failed to upload DIY image.');
+          }
+        },
     },
+    //Subscription which will be used to notify the client when a new DIY is created/ or instant update
+    Subscription: {
+      newDIY: {
+        subscribe: (_, __, { pubsub }) => {
+          return pubsub.asyncIterator('NEW_DIY');
+        },
+      },
+      newComment: {
+        subscribe: (_, { DIYId }, { pubsub }) => {
+          return pubsub.asyncIterator(`NEW_COMMENT_${DIYId}`);
+        },
+      },
+      newLike: {
+        subscribe: (_, { DIYId }, { pubsub }) => {
+          return pubsub.asyncIterator(`NEW_LIKE_${DIYId}`);
+        },
+      },
+      },
 };
 
 module.exports = resolvers;
