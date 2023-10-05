@@ -80,6 +80,40 @@ const resolvers = {
                 throw new Error('Unable to fetch DIYs data');
             }
         },
+        popular_DIYS: async () => {
+          try {
+            //  to get the top 8 DIYs with the most likes
+            const popularDIYs = await DIY.aggregate([
+              {
+                $lookup: {
+                  from: 'likes', 
+                  localField: '_id',
+                  foreignField: 'DIYId',
+                  as: 'likes',
+                },
+              },
+              {
+                $project: {
+                  _id: 1,
+                  title: 1,
+                  description: 1,
+                  images: 1,
+                  likes: { $size: '$likes' }, // Count the number of likes
+                },
+              },
+              {
+                $sort: { likes: -1 }, // Sort in descending order of likes
+              },
+              {
+                $limit: 8, // Limit the result to the top 5
+              },
+            ]);
+    
+            return popularDIYs;
+          } catch (error) {
+            throw new Error('Failed to fetch popular DIYs: ' + error.message);
+          }
+        },
         //search DIYs by title or description
         searchDIYs: async (parent, { searchTerm }) => {
             if (searchTerm) {
@@ -136,14 +170,14 @@ const resolvers = {
           //get all users who liked a DIY
           getLikedUsers: async (parent, { DIYId }) => {
             try {
-                const likes = await Like.find({ DIY: DIYId }).populate('user');
-                return likes.map((like) => like.user);
+                const likes = await Like.find({ DIY: DIYId }).sort({ createdAt: -1 }).populate('user');
+                const users = likes.map((like) => like.user);
+                return users;
             } catch (error) {
                 console.error('Error fetching liked users:', error);
                 throw new Error('Unable to fetch liked users');
             }
-        },
-          
+          },      
     },
     Mutation: {
         addUser: async (parent, { username, email, password }) => {
@@ -428,6 +462,11 @@ const resolvers = {
       newLike: {
         subscribe: (_, { DIYId }, { pubsub }) => {
           return pubsub.asyncIterator(`NEW_LIKE_${DIYId}`);
+        },
+      },
+      savedDIY : {
+        subscribe: (_, __, { pubsub }) => {
+          return pubsub.asyncIterator('SAVED_DIY');
         },
       },
       },
